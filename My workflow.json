@@ -1,0 +1,340 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "try {\n  const email = $input.first().json;\n  \n  if (!email) {\n    throw new Error(\"No email data received\");\n  }\n\n  const subject = email.subject || \"Meeting\";\n  let body = email.body || email.bodyText || email.snippet || \"\";\n  \n  // Decode HTML entities\n  body = body.replace(/&#39;/g, \"'\").replace(/&quot;/g, '\"').replace(/&amp;/g, '&');\n\n  const fromEmail = email.from?.email || \"organizer@company.com\";\n  const toField = email.to || \"\";\n\n  // Detect source\n  const isFathom = fromEmail.includes(\"fathom\");\n  const isFireflies = fromEmail.includes(\"fireflies\");\n\n  let attendeeEmails = [];\n  let meetingTitle = subject;\n\n  // EMAIL REGEX\n  const emailRegex = /([a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+\\.[a-zA-Z0-9_-]+)/g;\n\n  if (isFathom) {\n    // FATHOM: Subject looks like \"Recap of your meeting with priyanjanamuk09@gmail.com\"\n    \n    // METHOD 1: Extract email directly from subject (MOST IMPORTANT)\n    const subjectEmails = subject.match(emailRegex) || [];\n    attendeeEmails.push(...subjectEmails);\n\n    // METHOD 2: Also check body for emails\n    const bodyEmails = body.match(emailRegex) || [];\n    attendeeEmails.push(...bodyEmails);\n\n    meetingTitle = subject.replace(/Recap of your meeting with\\s*/i, \"\").trim();\n  } else if (isFireflies) {\n    // FIREFLIES: Extract from To field\n    const toEmails = toField.match(emailRegex) || [];\n    attendeeEmails.push(...toEmails);\n\n    const bodyEmails = body.match(emailRegex) || [];\n    attendeeEmails.push(...bodyEmails);\n\n    meetingTitle = subject.replace(/Your meeting recap\\s*-\\s*/i, \"\").trim();\n  } else {\n    // FALLBACK: Extract from everything\n    const allEmails = (subject + \" \" + body + \" \" + toField).match(emailRegex) || [];\n    attendeeEmails.push(...allEmails);\n  }\n\n  // Remove duplicates\n  attendeeEmails = [...new Set(attendeeEmails.map(e => e.toLowerCase()))];\n\n  // Remove organizer email\n  const organizerEmail = \"priyanjana.codeit@gmail.com\".toLowerCase();\n  attendeeEmails = attendeeEmails.filter(e => e !== organizerEmail);\n\n  // Parse meeting details\n  const purposeMatch = body.match(/Meeting Purpose\\s*([^\\n]+)/i);\n  const meetingPurpose = purposeMatch ? purposeMatch[1].trim() : \"Team meeting\";\n\n  const takeawaysStart = body.toLowerCase().indexOf(\"key takeaways\");\n  let keyTakeaways = \"See full meeting notes\";\n  if (takeawaysStart !== -1) {\n    const section = body.substring(takeawaysStart, takeawaysStart + 400);\n    const extracted = section.split('\\n').slice(1, 5).filter(l => l.trim()).join(' ').trim();\n    keyTakeaways = extracted || \"See full meeting notes\";\n  }\n\n  const actionStart = body.toLowerCase().indexOf(\"action items\");\n  let actionItems = \"Review meeting notes\";\n  if (actionStart !== -1) {\n    const section = body.substring(actionStart, actionStart + 300);\n    const extracted = section.split('\\n').slice(1, 3).filter(l => l.trim() && !l.includes(\"No action\")).join(' ').trim();\n    actionItems = extracted || \"Review meeting notes\";\n  }\n\n  const nextStart = body.toLowerCase().indexOf(\"next steps\");\n  let nextSteps = \"Follow up on action items\";\n  if (nextStart !== -1) {\n    const section = body.substring(nextStart, nextStart + 400);\n    const extracted = section.split('\\n').slice(1, 4).filter(l => l.trim()).join(' ').trim();\n    nextSteps = extracted || \"Follow up on action items\";\n  }\n\n  return {\n    json: {\n      meetingTitle: meetingTitle || \"Meeting\",\n      meetingPurpose: meetingPurpose,\n      keyTakeaways: keyTakeaways,\n      actionItems: actionItems,\n      nextSteps: nextSteps,\n      attendeeEmails: attendeeEmails.length > 0 ? attendeeEmails : [],\n      organizerName: \"Altix Codeit\",\n      organizerEmail: \"priyanjana.codeit@gmail.com\",\n      companyName: \"Codeit\",\n      fullEmailBody: body,\n      emailSubject: subject,\n      source: isFathom ? \"Fathom\" : isFireflies ? \"Fireflies\" : \"Unknown\",\n    }\n  };\n  \n} catch (error) {\n  return {\n    json: {\n      error: error.message,\n      meetingTitle: \"Error\",\n      attendeeEmails: [],\n      organizerName: \"Altix Codeit\",\n      organizerEmail: \"priyanjana.codeit@gmail.com\",\n      companyName: \"Codeit\",\n    }\n  };\n}\n\n\n   \n\n      "
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        0
+      ],
+      "id": "0e1fe607-a950-4d8a-af34-e85cc9fb6cbf",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"openrouter/auto\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a professional, friendly email writer for Codeit. Write warm, appreciative emails thanking team members for attending meetings. Include key discussion points and action items.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Write a thank you email to {{ $json.attendeeName }} for attending the '{{ $json.meetingTitle }}' meeting at Codeit.\\n\\nMeeting Purpose: {{ $json.meetingPurpose }}\\n\\nKey Points Discussed:\\n{{ $json.keyTakeaways }}\\n\\nAction Items:\\n{{ $json.actionItems }}\\n\\nNext Steps:\\n{{ $json.nextSteps }}\\n\\nWrite a brief, professional thank you with the key points they should remember. Keep it under 150 words. Sign off from {{ $json.organizerName }} at {{ $json.companyName }}.\"\n    }\n  ],\n  \"temperature\": 0.7,\n  \"max_tokens\": 200\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1312,
+        -16
+      ],
+      "id": "e75f84c9-9e84-4e76-a2ec-79bfde4502c3",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $node[\"Code in JavaScript1\"].json.attendeeEmail }}",
+        "subject": "=Thank you for attending {{ $node[\"Code in JavaScript1\"].json.meetingTitle }}",
+        "emailType": "text",
+        "message": "=Hi {{ $node[\"Code in JavaScript1\"].json.attendeeName }},\n\nThank you for attending the \"{{ $node[\"Code in JavaScript1\"].json.meetingTitle }}\" meeting at {{ $node[\"Code in JavaScript1\"].json.companyName }}.\n\nYour participation was invaluable to our discussion.\n\nMeeting Purpose:\n{{ $node[\"Code in JavaScript1\"].json.meetingPurpose }}\n\nKey Points Discussed:\n{{ $node[\"Code in JavaScript1\"].json.keyTakeaways }}\n\nAction Items:\n{{ $node[\"Code in JavaScript1\"].json.actionItems }}\n\nNext Steps:\n{{ $node[\"Code in JavaScript1\"].json.nextSteps }}\n\nThank you for your continued commitment to our team!\n\nBest regards,\n{{ $node[\"Code in JavaScript1\"].json.organizerName }}\n{{ $node[\"Code in JavaScript1\"].json.companyName }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1552,
+        -16
+      ],
+      "id": "3dc59e36-b606-49cc-9b46-b992a97fde2b",
+      "name": "Send a message",
+      "webhookId": "bef73f7b-b5b5-4239-b564-62ae1a221d99",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "aaMnxs1p6tlpkCw4",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "filters": {
+          "q": "recap",
+          "sender": "no-reply@fathom.video OR fred@fireflies.ai"
+        }
+      },
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        272,
+        0
+      ],
+      "id": "0d45f7f8-2d59-4b1c-9f43-27a7db94fa1c",
+      "name": "Gmail Trigger",
+      "alwaysOutputData": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "aaMnxs1p6tlpkCw4",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "try {\n  const calendarNode = $input.first().json;\n  const fathomData = $node[\"Code in JavaScript\"]?.json || {};\n  \n  let attendees = [];\n\n  // Extract attendees from Calendar\n  if (calendarNode?.items && calendarNode.items.length > 0 && calendarNode.items[0]?.attendees) {\n    attendees = calendarNode.items[0].attendees;\n  }\n\n  // If no attendees, return default\n  if (!attendees || attendees.length === 0) {\n    return [{\n      json: {\n        attendeeName: \"Participant\",\n        attendeeEmail: \"priyanjana2019@gmail.com\",\n        attendeeRole: \"Team Member\",\n        attended: false,\n        mentionedInMeeting: false,\n        calendarStatus: \"unknown\",\n        meetingTitle: fathomData.meetingTitle || \"Meeting\",\n        meetingPurpose: fathomData.meetingPurpose || \"Team discussion\",\n        keyTakeaways: fathomData.keyTakeaways || \"See full meeting notes\",\n        actionItems: fathomData.actionItems || \"Review meeting notes\",\n        nextSteps: fathomData.nextSteps || \"Follow up on action items\",\n        organizerName: fathomData.organizerName || \"Altix Codeit\",\n        organizerEmail: fathomData.organizerEmail || \"priyanjana.codeit@gmail.com\",\n        companyName: fathomData.companyName || \"Codeit\",\n        debugInfo: \"No attendees found in calendar\"\n      }\n    }];\n  }\n\n  const items = [];\n  const organizerEmail = fathomData.organizerEmail?.toLowerCase() || \"priyanjana.codeit@gmail.com\".toLowerCase();\n  const bodyLower = fathomData.fullEmailBody?.toLowerCase() || \"\";\n\n  // Process each attendee\n  for (let i = 0; i < attendees.length; i++) {\n    const attendee = attendees[i];\n    \n    // Skip if no email\n    if (!attendee?.email) continue;\n    \n    // Skip organizer\n    if (attendee.email.toLowerCase() === organizerEmail) continue;\n\n    const email = attendee.email;\n    const name = email.split('@')[0].replace(/[._-]/g, ' ').trim();\n    const displayName = name.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');\n    \n    const mentioned = bodyLower.includes(name.toLowerCase()) || bodyLower.includes(email.toLowerCase());\n    const status = attendee.responseStatus || \"unknown\";\n    const attended = mentioned || status === \"accepted\";\n\n    items.push({\n      json: {\n        attendeeName: displayName,\n        attendeeEmail: email,\n        attendeeRole: \"Team Member\",\n        attended: attended,\n        mentionedInMeeting: mentioned,\n        calendarStatus: status,\n        meetingTitle: fathomData.meetingTitle || \"Meeting\",\n        meetingPurpose: fathomData.meetingPurpose || \"Team discussion\",\n        keyTakeaways: fathomData.keyTakeaways || \"See full meeting notes\",\n        actionItems: fathomData.actionItems || \"Review meeting notes\",\n        nextSteps: fathomData.nextSteps || \"Follow up on action items\",\n        organizerName: fathomData.organizerName || \"Altix Codeit\",\n        organizerEmail: fathomData.organizerEmail || \"priyanjana.codeit@gmail.com\",\n        companyName: fathomData.companyName || \"Codeit\"\n      }\n    });\n  }\n\n  // If items is empty, return default\n  if (items.length === 0) {\n    return [{\n      json: {\n        attendeeName: \"Participant\",\n        attendeeEmail: \"priyanjana2019@gmail.com\",\n        attended: false,\n        mentionedInMeeting: false,\n        debugInfo: `Found ${attendees.length} attendees but all were filtered out`\n      }\n    }];\n  }\n\n  return items;\n\n} catch (error) {\n  return [{\n    json: {\n      error: error.message,\n      attendeeName: \"Error: \" + error.message,\n      attendeeEmail: \"error@company.com\",\n      debugInfo: error.toString()\n    }\n  }];\n}\n     \n\n   \n\n  \n     \n  \n\n  \n      "
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        0
+      ],
+      "id": "bacdf50c-254e-4370-8aa0-8b7026557ea9",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "f5a909a9-52d7-4b5b-ab57-30ea82e52e0f",
+              "leftValue": "={{ $json.attended }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1104,
+        0
+      ],
+      "id": "d67528bc-028e-4d0f-9846-ea5187663173",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Authorization",
+              "value": "Bearer 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"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"openrouter/auto\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a professional, empathetic email writer for Codeit. Write warm follow-up emails to team members who missed meetings. Provide comprehensive summary so they stay informed. Be understanding, not accusatory.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Write a follow-up email to {{ $json.attendeeName }} from Codeit who missed the '{{ $json.meetingTitle }}' meeting.\\n\\nMeeting Purpose:\\n{{ $json.meetingPurpose }}\\n\\nKey Takeaways They Should Know:\\n{{ $json.keyTakeaways }}\\n\\nAction Items (if relevant to them):\\n{{ $json.actionItems }}\\n\\nNext Steps:\\n{{ $json.nextSteps }}\\n\\nWrite a warm, understanding email. Share the important information so they're informed. Offer to discuss further. Keep it under 180 words. Sign off from {{ $json.organizerName }} at {{ $json.companyName }}.\"\n    }\n  ],\n  \"temperature\": 0.7,\n  \"max_tokens\": 220\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1312,
+        240
+      ],
+      "id": "e1691fba-6997-4f98-86b6-1b6fb96db79f",
+      "name": "HTTP Request2"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $node[\"Code in JavaScript1\"].json.attendeeEmail }}",
+        "subject": "=We Missed You - {{ $node[\"Code in JavaScript1\"].json.meetingTitle }}",
+        "emailType": "text",
+        "message": "=Hi {{ $node[\"Code in JavaScript1\"].json.attendeeName }},\n\nWe wanted to reach out because we missed you at the \"{{ $node[\"Code in JavaScript1\"].json.meetingTitle }}\" meeting. We understand that things come up, and we completely respect that!\n\nHere's what we discussed:\n\nMeeting Purpose:\n{{ $node[\"Code in JavaScript1\"].json.meetingPurpose }}\n\nKey Points:\n{{ $node[\"Code in JavaScript1\"].json.keyTakeaways }}\n\nAction Items:\n{{ $node[\"Code in JavaScript1\"].json.actionItems }}\n\nNext Steps:\n{{ $node[\"Code in JavaScript1\"].json.nextSteps }}\n\nWe'd love to catch you up on any details. Feel free to reach out if you have any questions!\n\nBest regards,\n{{ $node[\"Code in JavaScript1\"].json.organizerName }}\n{{ $node[\"Code in JavaScript1\"].json.companyName }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1520,
+        240
+      ],
+      "id": "11b089f1-1891-4f41-b793-07ef22b827f7",
+      "name": "Send a message1",
+      "webhookId": "478b3860-37da-4557-b476-987337b52f40",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "aaMnxs1p6tlpkCw4",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "calendar": {
+          "__rl": true,
+          "value": "priyanjana.codeit@gmail.com",
+          "mode": "list",
+          "cachedResultName": "priyanjana.codeit@gmail.com"
+        },
+        "timeMin": "={{ $now.minus({ month: 1 }) }}",
+        "timeMax": "={{ $now.plus({ month: 1 }) }}",
+        "options": {
+          "query": "={{ $json.meetingTitle }}"
+        }
+      },
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        720,
+        0
+      ],
+      "id": "5af59fba-93f1-41bc-a6cd-a450e112ac1d",
+      "name": "Get many events1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "dQ4WyssNIcfYC275",
+          "name": "Google Calendar OAuth2 API"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Get many events1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "HTTP Request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request2": {
+      "main": [
+        [
+          {
+            "node": "Send a message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many events1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "16ab011a-1bef-48ac-9114-5714234adf18",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "3989fa364abb0894f28b949a8c4038eacc0ee8c339dd6df237a6bdf90bdc59cf"
+  },
+  "id": "AW4Zm0e35tdzZE4y",
+  "tags": []
+}
